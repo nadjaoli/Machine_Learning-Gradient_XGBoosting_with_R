@@ -1,0 +1,81 @@
+## Gradiant Boosting with R (Iris dataset) ##
+
+XGBoost stands for eXtreme Gradient Boosting and represents the algorithm that wins most of the Kaggle competitions. 
+It is an algorithm specifically designed to implement state-of-the-art results fast.XGBoost is used both in regression 
+and classification as a go-to algorithm. 
+
+library(xgboost)
+library(caTools)
+library(dplyr)
+library(caret)
+
+head(iris)
+
+The next step is dataset splitting into training and testing subsets. The following code snippet splits the dataset in a 70:30 
+ratio and then further splits the dataset in features (X) and target (y) for both subsets. This step is necessary for the training process:
+
+set.seed(42)
+sample_split <- sample.split(Y = iris$Species, SplitRatio = 0.7)
+train_set <- subset(x = iris, sample_split == TRUE)
+test_set <- subset(x = iris, sample_split == FALSE)
+
+y_train <- as.integer(train_set$Species) - 1
+y_test <- as.integer(test_set$Species) - 1
+X_train <- train_set %>% select(-Species)
+X_test <- test_set %>% select(-Species)
+
+>> Modeling
+
+XGBoost uses something knows as a DMatrix to store data. DMatrix is nothing but a specific data structure used to store data in a way optimized 
+for both memory efficiency and training speed. 
+
+xgb_train <- xgb.DMatrix(data = as.matrix(X_train), label = y_train)
+xgb_test <- xgb.DMatrix(data = as.matrix(X_test), label = y_test)
+xgb_params <- list(
+  booster = "gbtree",
+  eta = 0.01,
+  max_depth = 8,
+  gamma = 4,
+  subsample = 0.75,
+  colsample_bytree = 1,
+  objective = "multi:softprob",
+  eval_metric = "mlogloss",
+  num_class = length(levels(iris$Species))
+)
+
+xgb_model <- xgb.train(
+  params = xgb_params,
+  data = xgb_train,
+  nrounds = 5000,
+  verbose = 1
+)
+xgb_model
+
+>> Predictions and Evaluations
+
+You can use the predict() function to make predictions with the XGBoost model, just as with any other model. The next step is to covert the predictions 
+to a data frame and assign column names, as the predictions are returned in the form of probabilities:
+
+xgb_preds <- predict(xgb_model, as.matrix(X_test), reshape = TRUE)
+xgb_preds <- as.data.frame(xgb_preds)
+colnames(xgb_preds) <- levels(iris$Species)
+xgb_preds
+
+As you would imagine, these probabilities add up to 1 for a single row. The column with the highest probability is the flower species predicted by the model.
+Still, it would be nice to have two additional columns. The first one represents the predicted class (max of predicted probabilities). The other represents the 
+actual class, so we can estimate how good the model performs on previously unseen data.
+
+xgb_preds$PredictedClass <- apply(xgb_preds, 1, function(y) colnames(xgb_preds)[which.max(y)])
+xgb_preds$ActualClass <- levels(iris$Species)[y_test + 1]
+xgb_preds
+
+Next, we can calculate the overall accuracy score as a sum of instances where predicted and actual classes match divided by the total number of rows:
+
+accuracy <- sum(xgb_preds$PredictedClass == xgb_preds$ActualClass) / nrow(xgb_preds)
+accuracy
+
+Executing the above code prints out 0.9333 to the console, indicating we have a 93% accurate model on previously unseen data.
+While we’re here, we can also print the confusion matrix to see what exactly did the model misclassify:
+
+confusionMatrix(factor(xgb_preds$ActualClass), factor(xgb_preds$PredictedClass))
+
